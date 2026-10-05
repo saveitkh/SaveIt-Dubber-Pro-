@@ -47,9 +47,9 @@ export function Settings() {
 
   const providerStatus: ProviderStatus | null = providerConfig ?? (health
     ? {
-        gemini: { configured: health.providers.gemini },
+        gemini: { configured: health.providers.gemini, model: "" },
         elevenlabs: { configured: health.providers.elevenlabs },
-        voxcpm: { configured: health.providers.voxcpm, url: "" },
+        voxcpm: { configured: health.providers.voxcpm, url: "", mode: "" },
       }
     : null);
 

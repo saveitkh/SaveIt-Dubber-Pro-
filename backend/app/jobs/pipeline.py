@@ -86,6 +86,7 @@ async def stage_separate(project: Project, db: Session, on_progress: ProgressFn)
 async def stage_transcribe(project: Project, db: Session, on_progress: ProgressFn) -> None:
     on_progress(0, STAGE_LABELS["transcribe"])
     api_key = settings.gemini_api_key
+    model = settings.gemini_model or "gemini-flash-latest"
 
     # Clear any previous run's auto-generated lines/characters so a re-run from this
     # stage doesn't duplicate them (manual edits downstream are out of scope for M2's
@@ -110,6 +111,7 @@ async def stage_transcribe(project: Project, db: Session, on_progress: ProgressF
         raw_lines, failed_chunks = await dubber.extract_dialogue_timeline(
             source_audio, project.duration_sec or 0, api_key, tmp_dir,
             on_progress=lambda pct: on_progress(pct * 0.9, STAGE_LABELS["transcribe"]),
+            model=model,
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

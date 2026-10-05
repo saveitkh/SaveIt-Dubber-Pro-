@@ -82,9 +82,9 @@ export interface VoiceItem {
 }
 
 export interface ProviderStatus {
-  gemini: { configured: boolean };
+  gemini: { configured: boolean; model: string };
   elevenlabs: { configured: boolean };
-  voxcpm: { configured: boolean; url: string };
+  voxcpm: { configured: boolean; url: string; mode: string };
 }
 
 export interface HealthStatus {

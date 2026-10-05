@@ -12,7 +12,7 @@ services:
       - ./outputs:/app/outputs
       - ./voices:/app/voices
     ports:
-      - "3000:3000"
+      - "3001:3001"
     restart: unless-stopped
 
   caddy:

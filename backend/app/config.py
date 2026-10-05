@@ -15,6 +15,8 @@ for d in (DATA_DIR, UPLOADS_DIR, OUTPUTS_DIR, VOICES_DIR):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), extra="ignore")
 
+    port: int = 3001
+
     database_url: str = f"sqlite:///{DATA_DIR / 'studio.db'}"
 
     jwt_secret: str = "change-me-in-.env"
@@ -27,8 +29,14 @@ class Settings(BaseSettings):
     studio_admin_password: str = ""
 
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-flash-latest"
     elevenlabs_api_key: str = ""
     voxcpm_url: str = ""
+    voxcpm_mode: str = "cloud"
+
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    supabase_voice_bucket: str = "voice-casts"
 
     domain: str = ""
     public_url: str = ""

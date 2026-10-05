@@ -5,4 +5,4 @@ git pull --ff-only
 docker compose build studio
 docker compose up -d studio
 docker compose ps studio
-curl -fsS http://localhost:3000/api/health && echo "OK"
+curl -fsS http://localhost:3001/api/health && echo "OK"

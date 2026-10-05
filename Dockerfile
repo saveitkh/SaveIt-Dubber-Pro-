@@ -18,5 +18,5 @@ COPY backend/ .
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
 ENV STUDIO_FRONTEND_DIST=/app/frontend/dist
-EXPOSE 3000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]
+EXPOSE 3001
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3001}"]

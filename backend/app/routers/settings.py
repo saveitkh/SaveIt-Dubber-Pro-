@@ -14,9 +14,9 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 def _provider_status() -> dict:
     return {
-        "gemini": {"configured": bool(app_settings.gemini_api_key)},
+        "gemini": {"configured": bool(app_settings.gemini_api_key), "model": app_settings.gemini_model},
         "elevenlabs": {"configured": bool(app_settings.elevenlabs_api_key)},
-        "voxcpm": {"configured": bool(app_settings.voxcpm_url), "url": app_settings.voxcpm_url},
+        "voxcpm": {"configured": bool(app_settings.voxcpm_url), "url": app_settings.voxcpm_url, "mode": app_settings.voxcpm_mode},
     }
 
 

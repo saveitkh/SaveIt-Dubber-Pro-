@@ -57,8 +57,10 @@ class GeminiError(RuntimeError):
 
 
 async def transcribe_chunk(
-    chunk_path: str, api_key: str, model: str = DEFAULT_MODEL, mime_type: str = "audio/wav"
+    chunk_path: str, api_key: str, model: str = "", mime_type: str = "audio/wav"
 ) -> list[dict]:
+    if not model:
+        model = DEFAULT_MODEL
     if not api_key:
         raise GeminiError("GEMINI_API_KEY is not configured")
 
