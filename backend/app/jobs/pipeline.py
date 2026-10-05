@@ -93,12 +93,21 @@ async def stage_transcribe(project: Project, db: Session, on_progress: ProgressF
     tmp_dir = os.path.join(_project_dir(project.id), "tmp_chunks")
     source_audio = project.vocals_path or project.audio_path
     try:
-        raw_lines = await dubber.extract_dialogue_timeline(
+        raw_lines, failed_chunks = await dubber.extract_dialogue_timeline(
             source_audio, project.duration_sec or 0, api_key, tmp_dir,
             on_progress=lambda pct: on_progress(pct * 0.9, STAGE_LABELS["transcribe"]),
         )
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # A chunk Gemini couldn't transcribe (quota, transient 5xx after retries, …)
+    # loses only its own time span, not the rest of the project (spec §3/§8: never
+    # a blocked or half-finished job) — surfaced as a review item for that span.
+    for start, end, error in failed_chunks:
+        db.add(ReviewItem(
+            project_id=project.id, kind="missed",
+            payload={"reason": f"Gemini call failed for {start:.0f}s-{end:.0f}s: {error}"},
+        ))
 
     characters: dict[str, Character] = {}
     palette = ["#f87171", "#fb923c", "#facc15", "#4ade80", "#38bdf8", "#818cf8", "#f472b6", "#a78bfa"]

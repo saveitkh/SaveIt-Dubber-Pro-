@@ -54,16 +54,24 @@ async def extract_dialogue_timeline(
     api_key: str,
     tmp_dir: str,
     on_progress: Callable[[float], None] | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], list[tuple[float, float, str]]]:
+    """Returns (lines, failed_chunks). A chunk that fails even after
+    `gemini_client`'s own retries does not abort the rest of the track — it's
+    reported back as (start, end, error) so the caller can flag it as a `missed`
+    review item instead of losing every other chunk's transcription too."""
     os.makedirs(tmp_dir, exist_ok=True)
     bounds = _chunk_bounds(total_duration)
     all_lines: list[dict] = []
+    failed_chunks: list[tuple[float, float, str]] = []
 
     for idx, (start, end) in enumerate(bounds):
         chunk_path = os.path.join(tmp_dir, f"chunk_{idx}.wav")
         await asyncio.to_thread(_extract_chunk, audio_path, start, end, chunk_path)
         try:
             raw_lines = await gemini_client.transcribe_chunk(chunk_path, api_key, mime_type="audio/wav")
+        except gemini_client.GeminiError as exc:
+            failed_chunks.append((start, end, str(exc)))
+            raw_lines = []
         finally:
             if os.path.exists(chunk_path):
                 os.remove(chunk_path)
@@ -90,4 +98,4 @@ async def extract_dialogue_timeline(
         if on_progress:
             on_progress((idx + 1) / len(bounds) * 100.0)
 
-    return _dedupe(all_lines)
+    return _dedupe(all_lines), failed_chunks

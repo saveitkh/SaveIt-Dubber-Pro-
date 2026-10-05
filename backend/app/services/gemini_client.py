@@ -7,11 +7,18 @@ dropped for M2 in favour of one configurable model name — add it back in M5 if
 key can't use `gemini-flash-latest`.
 """
 
+import asyncio
 import base64
 import json
 import re
 
 import httpx
+
+# Gemini returns 429 (quota) and 503 (transient overload) under normal load; a
+# single retry-with-backoff absorbs most of these rather than failing the whole
+# chunk (and, upstream, the whole transcribe stage).
+_TRANSIENT_STATUS = {429, 503}
+_RETRY_DELAYS = (2, 6, 15)
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-flash-latest"
@@ -68,8 +75,13 @@ async def transcribe_chunk(
         }]
     }
 
+    resp = None
     async with httpx.AsyncClient(timeout=90) as client:
-        resp = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
+        for delay in (*_RETRY_DELAYS, None):
+            resp = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
+            if resp.status_code == 200 or resp.status_code not in _TRANSIENT_STATUS or delay is None:
+                break
+            await asyncio.sleep(delay)
 
     if resp.status_code != 200:
         raise GeminiError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
