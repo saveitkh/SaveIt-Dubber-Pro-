@@ -10,8 +10,17 @@ See `docs/PLAN.md` for the architecture, the reuse map from the reference repo
 ## Status
 
 **M1 Skeleton** — auth (Telegram + password), projects, upload, job runner with SSE,
-mobile + desktop shells. Pipeline stages are stubbed (real timing/progress, no-op
-processing) until M2 wires in ffmpeg/Demucs/Gemini/TTS.
+mobile + desktop shells.
+
+**M2 Auto pipeline** — all 8 stages run for real: ffmpeg prepare/mux/export, Demucs
+(with an ffmpeg DSP fallback when Demucs isn't installed) for vocal/background
+separation, chunked Gemini transcription+translation, stock Khmer TTS (edge-tts,
+free/no key) fit to each line's time slot, and a smart background bed mix (full
+volume where nobody speaks, ducked under dialogue). Without `GEMINI_API_KEY`
+configured, a project still finishes end-to-end as a clean passthrough of the
+original audio with a review item explaining why — never a blocked job (spec §3/§8).
+Voice cloning (VoxCPM2/ElevenLabs) and the acoustic diarization/review-queue
+refinements land in M3/M4.
 
 ## Local development
 

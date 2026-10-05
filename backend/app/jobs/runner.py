@@ -70,7 +70,7 @@ async def run_job(job_id: str, from_stage: str | None = None) -> None:
             job.message = None
             db.commit()
 
-            def on_progress(progress: float, message: str | None = None) -> None:
+            def on_progress(progress: float, message: str | None = None, stage: str = stage) -> None:
                 job.progress = progress
                 job.message = message
                 db.commit()

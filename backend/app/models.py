@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -48,6 +48,13 @@ class Project(Base):
     duration_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     automation_level: Mapped[str] = mapped_column(String, default="full_auto")
     status: Mapped[str] = mapped_column(String, default="new")
+    # Intermediate pipeline artifacts (stage 1-2), cached so a re-run only redoes
+    # what changed downstream (spec §3).
+    audio_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    proxy_video_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    vocals_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    background_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    dialogue_mix_path: Mapped[str | None] = mapped_column(String, nullable=True)
     output_video_path: Mapped[str | None] = mapped_column(String, nullable=True)
     output_audio_path: Mapped[str | None] = mapped_column(String, nullable=True)
     output_srt_path: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -89,6 +96,8 @@ class Character(Base):
     face_thumb_path: Mapped[str | None] = mapped_column(String, nullable=True)
     emotion_default: Mapped[str] = mapped_column(String, default="neutral")
     speed: Mapped[float] = mapped_column(Float, default=1.0)
+    # Stock Khmer TTS voice (edge-tts) used until a cloned voice exists (M3).
+    stock_voice: Mapped[str | None] = mapped_column(String, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="characters")
     lines: Mapped[list["Line"]] = relationship(back_populates="character")
