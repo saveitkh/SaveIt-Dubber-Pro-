@@ -28,7 +28,15 @@ flagging disagreements for review, auto-cast with cloning (VoxCPM2 → ElevenLab
 stock, in that order) gated on a licensed/admin account, cross-episode series voice
 memory by acoustic fingerprint similarity, and a working Voice Clip screen/endpoint
 (drop any file with voices → separated, split by speaker, quality-scored clips ready
-to name and save). Timeline/review-queue UI and partial re-runs land in M4.
+to name and save).
+
+**M4 Editor** — server-computed, cached waveform peaks rendered on a timeline with
+flagged-line markers and click-to-seek; a Review queue (spec §6) with play
+original-vs-Khmer, Correct/Regenerate/Remove, and one-tap reassign-to-character for
+`unsure` items; a Character sheet for name/gender/emotion/speed; and partial re-runs —
+fixing one flagged line re-synthesizes only that line then rebuilds the mix/export
+(not the whole project), measured at well under a second in testing against the
+spec's <30s target. Providers settings UI and deploy polish land in M5.
 
 ## Local development
 
