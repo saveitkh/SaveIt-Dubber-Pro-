@@ -333,11 +333,72 @@ async def _fit_to_slot(tmp_path: str, out_path: str, slot_seconds: float) -> tup
     return 0.5 <= factor <= 2.0, ffmpeg_tools.probe_duration(out_path)
 
 
-async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) -> None:
-    on_progress(0, STAGE_LABELS["speak"])
+async def speak_line(project: Project, line: Line, db: Session) -> None:
+    """Synthesize one line (provider order: VoxCPM2 -> ElevenLabs -> stock, spec §8)
+    and fit it to its time slot. Shared by the full speak stage and the single-line
+    partial re-run (spec §6: "fixing an item re-runs only what depends on it")."""
     lines_dir = os.path.join(_project_dir(project.id), "lines")
     os.makedirs(lines_dir, exist_ok=True)
 
+    character = line.character
+    out_path = os.path.join(lines_dir, f"{line.id}.mp3")
+    tmp_path = os.path.join(lines_dir, f"{line.id}.raw.mp3")
+    slot = max(0.0, line.end_sec - line.start_sec)
+
+    provider_ids = (character.voice.provider_ids if character and character.voice else None) or {}
+    voxcpm_voice_id = provider_ids.get("voxcpm")
+    elevenlabs_voice_id = provider_ids.get("elevenlabs")
+
+    energy_db = None
+    vocals_source = project.vocals_path or project.audio_path
+    if vocals_source:
+        energy_db = await ffmpeg_tools.measure_segment_mean_volume(vocals_source, line.start_sec, line.end_sec)
+
+    # Clear flags/review items this re-synthesis might fix; a fresh failure re-adds
+    # them below.
+    line.flags = [f for f in line.flags if f not in ("slot_overflow", "tts_failed")]
+    db.query(ReviewItem).filter(
+        ReviewItem.line_id == line.id, ReviewItem.kind.in_(["slot_overflow", "tts_failed"])
+    ).update({"resolved": True})
+
+    try:
+        if voxcpm_voice_id and settings.voxcpm_url:
+            # Cloned voice (M3, primary provider): the character's own performance,
+            # in Khmer, with emotion carried as a style prefix (spec §8b).
+            await voxcpm_client.speak(
+                settings.voxcpm_url, line.khmer_text, tmp_path, voice_id=voxcpm_voice_id,
+                style=voxcpm_client.EMOTION_STYLE.get(line.emotion),
+            )
+            fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
+        elif elevenlabs_voice_id:
+            # Cloned voice (M3, fallback provider).
+            await elevenlabs_service.text_to_speech(
+                settings.elevenlabs_api_key, elevenlabs_voice_id, line.khmer_text, tmp_path, emotion=line.emotion,
+            )
+            fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
+        else:
+            # Stock voice fallback (spec §3/§8): always available, no license needed.
+            stock_voice = (character.stock_voice if character else None) or tts_stock.voice_for_gender(
+                character.gender if character else None
+            )
+            fit_ok, _ = await tts_stock.synthesize_fit_to_slot(
+                line.khmer_text, stock_voice, out_path, slot, tmp_path,
+                emotion=line.emotion, energy_db=energy_db,
+            )
+        line.audio_path = out_path
+        if not fit_ok and "slot_overflow" not in line.flags:
+            line.flags = [*line.flags, "slot_overflow"]
+            db.add(ReviewItem(project_id=project.id, line_id=line.id, kind="slot_overflow"))
+    except Exception as exc:  # noqa: BLE001
+        if "tts_failed" not in line.flags:
+            line.flags = [*line.flags, "tts_failed"]
+            db.add(ReviewItem(project_id=project.id, line_id=line.id, kind="tts_failed", payload={"error": str(exc)}))
+    line.dirty = False
+    db.commit()
+
+
+async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) -> None:
+    on_progress(0, STAGE_LABELS["speak"])
     lines = (
         db.query(Line)
         .filter(Line.project_id == project.id, Line.khmer_text != "")
@@ -345,54 +406,7 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
         .all()
     )
     for i, line in enumerate(lines):
-        character = line.character
-        out_path = os.path.join(lines_dir, f"{line.id}.mp3")
-        tmp_path = os.path.join(lines_dir, f"{line.id}.raw.mp3")
-        slot = max(0.0, line.end_sec - line.start_sec)
-
-        provider_ids = (character.voice.provider_ids if character and character.voice else None) or {}
-        voxcpm_voice_id = provider_ids.get("voxcpm")
-        elevenlabs_voice_id = provider_ids.get("elevenlabs")
-
-        energy_db = None
-        vocals_source = project.vocals_path or project.audio_path
-        if vocals_source:
-            energy_db = await ffmpeg_tools.measure_segment_mean_volume(vocals_source, line.start_sec, line.end_sec)
-
-        try:
-            if voxcpm_voice_id and settings.voxcpm_url:
-                # Cloned voice (M3, primary provider): the character's own performance,
-                # in Khmer, with emotion carried as a style prefix (spec §8b).
-                await voxcpm_client.speak(
-                    settings.voxcpm_url, line.khmer_text, tmp_path, voice_id=voxcpm_voice_id,
-                    style=voxcpm_client.EMOTION_STYLE.get(line.emotion),
-                )
-                fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
-            elif elevenlabs_voice_id:
-                # Cloned voice (M3, fallback provider).
-                await elevenlabs_service.text_to_speech(
-                    settings.elevenlabs_api_key, elevenlabs_voice_id, line.khmer_text, tmp_path, emotion=line.emotion,
-                )
-                fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
-            else:
-                # Stock voice fallback (spec §3/§8): always available, no license needed.
-                stock_voice = (character.stock_voice if character else None) or tts_stock.voice_for_gender(
-                    character.gender if character else None
-                )
-                fit_ok, _ = await tts_stock.synthesize_fit_to_slot(
-                    line.khmer_text, stock_voice, out_path, slot, tmp_path,
-                    emotion=line.emotion, energy_db=energy_db,
-                )
-            line.audio_path = out_path
-            if not fit_ok and "slot_overflow" not in line.flags:
-                line.flags = [*line.flags, "slot_overflow"]
-                db.add(ReviewItem(project_id=project.id, line_id=line.id, kind="slot_overflow"))
-        except Exception as exc:  # noqa: BLE001
-            if "tts_failed" not in line.flags:
-                line.flags = [*line.flags, "tts_failed"]
-                db.add(ReviewItem(project_id=project.id, line_id=line.id, kind="tts_failed", payload={"error": str(exc)}))
-        line.dirty = False
-        db.commit()
+        await speak_line(project, line, db)
         on_progress((i + 1) / max(len(lines), 1) * 100.0, STAGE_LABELS["speak"])
 
     on_progress(100, STAGE_LABELS["speak"])
@@ -488,3 +502,21 @@ async def run_stage(stage: str, project_id: str, db: Session, on_progress: Progr
     if not project:
         raise RuntimeError(f"Project not found: {project_id}")
     await _STAGE_FUNCS[stage](project, db, on_progress)
+
+
+def _noop_progress(progress: float, message: str | None = None) -> None:
+    pass
+
+
+async def regenerate_line(line: Line, db: Session) -> None:
+    """Partial re-run (spec §6: "fixing an item re-runs only what depends on it,"
+    accept criterion: "fixing one flagged line re-generates only that line in < 30s").
+    Re-synthesizes just this one line, then rebuilds the mix and export — both pure
+    ffmpeg work over already-synthesized line clips, not new TTS calls, so they're
+    fast regardless of project length."""
+    project = db.get(Project, line.project_id)
+    if not project:
+        raise RuntimeError(f"Project not found: {line.project_id}")
+    await speak_line(project, line, db)
+    await stage_mix(project, db, _noop_progress)
+    await stage_export(project, db, _noop_progress)

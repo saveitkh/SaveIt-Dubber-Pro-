@@ -9,6 +9,7 @@ from app.deps import get_current_user
 from app.jobs.pipeline import STAGES
 from app.jobs.runner import run_job
 from app.models import Character, Job, Line, Project, ReviewItem, User
+from app.services import waveform as waveform_service
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -133,6 +134,22 @@ def get_project(project_id: str, user: User = Depends(get_current_user), db: Ses
             for j in jobs
         ],
     }
+
+
+@router.get("/{project_id}/waveform")
+def get_waveform(
+    project_id: str, track: str = "original", user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Server-computed waveform peaks for the timeline (spec §5.1)."""
+    project = db.get(Project, project_id)
+    if not project or project.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="រកមិនឃើញគម្រោង")
+
+    path = {"original": project.audio_path, "background": project.background_path}.get(track)
+    if not path:
+        raise HTTPException(status_code=400, detail=f"ត្រាក់មិនត្រឹមត្រូវ ឬមិនទាន់មាន: {track}")
+
+    return waveform_service.compute_peaks(path)
 
 
 @router.get("")

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.jobs.pipeline import regenerate_line as _regenerate_line
 from app.models import Line, Project, User
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
@@ -43,9 +44,15 @@ def patch_line(
 
 
 @router.post("/{line_id}/regenerate")
-def regenerate_line(line_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+async def regenerate_line(line_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Partial re-run (spec §6): re-synthesizes just this line, then rebuilds the
+    mix and final export — fast, since no other line's audio is touched."""
     line = _owned_line(line_id, user, db)
-    line.dirty = True
-    db.commit()
-    # M2/M3 will enqueue a targeted speak+mix re-run for just this line.
-    return {"id": line.id, "queued": True}
+    await _regenerate_line(line, db)
+    db.refresh(line)
+    return {
+        "id": line.id,
+        "dirty": line.dirty,
+        "flags": line.flags,
+        "audioPath": line.audio_path,
+    }
