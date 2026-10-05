@@ -171,8 +171,17 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
         out_path = os.path.join(lines_dir, f"{line.id}.mp3")
         tmp_path = os.path.join(lines_dir, f"{line.id}.raw.mp3")
         slot = max(0.0, line.end_sec - line.start_sec)
+
+        energy_db = None
+        vocals_source = project.vocals_path or project.audio_path
+        if vocals_source:
+            energy_db = await ffmpeg_tools.measure_segment_mean_volume(vocals_source, line.start_sec, line.end_sec)
+
         try:
-            fit_ok, _ = await tts_stock.synthesize_fit_to_slot(line.khmer_text, voice, out_path, slot, tmp_path)
+            fit_ok, _ = await tts_stock.synthesize_fit_to_slot(
+                line.khmer_text, voice, out_path, slot, tmp_path,
+                emotion=line.emotion, energy_db=energy_db,
+            )
             line.audio_path = out_path
             if not fit_ok and "slot_overflow" not in line.flags:
                 line.flags = [*line.flags, "slot_overflow"]
