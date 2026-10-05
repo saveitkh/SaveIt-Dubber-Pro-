@@ -98,9 +98,14 @@ class Character(Base):
     speed: Mapped[float] = mapped_column(Float, default=1.0)
     # Stock Khmer TTS voice (edge-tts) used until a cloned voice exists (M3).
     stock_voice: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Acoustic fingerprint (voice_engine.segment_fingerprint, averaged over this
+    # character's lines) — compared against series_voices for cross-episode
+    # voice reuse (spec §4.3).
+    fingerprint: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="characters")
     lines: Mapped[list["Line"]] = relationship(back_populates="character")
+    voice: Mapped["Voice | None"] = relationship(foreign_keys=[voice_id])
 
 
 class Line(Base):

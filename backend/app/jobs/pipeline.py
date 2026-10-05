@@ -8,15 +8,28 @@ without providers still finishes as a straight passthrough of the original audio
 "never a blocked or half-finished job" (spec §3/§8).
 """
 
+import asyncio
 import os
 import shutil
+from collections import Counter
 from collections.abc import Callable
 
+import numpy as np
 from sqlalchemy.orm import Session
 
 from app.config import OUTPUTS_DIR, settings
-from app.models import Character, Line, Project, ReviewItem
-from app.services import audio_mix, dubber, ffmpeg_tools, subtitles, tts_stock, vocal_separator
+from app.models import Character, Line, Project, ReviewItem, User, Voice
+from app.services import (
+    audio_mix,
+    dubber,
+    elevenlabs_service,
+    ffmpeg_tools,
+    subtitles,
+    tts_stock,
+    vocal_separator,
+    voice_cast_store,
+    voice_engine,
+)
 
 STAGES = ["prepare", "separate", "transcribe", "diarize", "cast", "speak", "mix", "export"]
 
@@ -145,20 +158,152 @@ async def stage_transcribe(project: Project, db: Session, on_progress: ProgressF
 
 
 async def stage_diarize(project: Project, db: Session, on_progress: ProgressFn) -> None:
-    # M2 trusts Gemini's own speaker split from the transcribe stage. M3 refines it with
-    # the acoustic voice engine (MFCC + pitch clustering) ported from
-    # scripts/voice_split_offline.py, merging overlap/unsure/missed flags in here.
+    """Cross-checks Gemini's speaker split (stage 3) against the acoustic voice
+    engine: cluster every line's audio span by MFCC+pitch, and flag any line whose
+    acoustic cluster disagrees with the majority cluster of the character Gemini
+    assigned it to as `unsure` (spec §6) — Gemini is good at *who said this* from
+    context but can mislabel an unfamiliar voice; the acoustic signal catches that.
+    Also computes each character's fingerprint (mean feature vector of its lines),
+    used for cross-episode voice reuse in stage_cast (spec §4.3)."""
+    on_progress(0, STAGE_LABELS["diarize"])
+    lines = db.query(Line).filter(Line.project_id == project.id).order_by(Line.start_sec).all()
+    characters = {c.id: c for c in db.query(Character).filter(Character.project_id == project.id).all()}
+    source = project.vocals_path or project.audio_path
+
+    if len(lines) < 2 or not source:
+        on_progress(100, STAGE_LABELS["diarize"])
+        return
+
+    def _analyze() -> tuple[np.ndarray, np.ndarray]:
+        audio, sr = voice_engine.load_audio_16k_mono(source)
+        spans = [(line.start_sec, line.end_sec) for line in lines]
+        feats = voice_engine.extract_features(audio, sr, spans)
+        k_hint = len(characters) or None
+        k_hi = min(8, len(lines))
+        labels, _, _ = voice_engine.cluster_segments(feats, k=k_hint, k_range=(2, max(2, k_hi)))
+        return feats, labels
+
+    feats, labels = await asyncio.to_thread(_analyze)
+    on_progress(60, STAGE_LABELS["diarize"])
+
+    votes: dict[str, Counter] = {}
+    for line, label in zip(lines, labels, strict=True):
+        if line.character_id:
+            votes.setdefault(line.character_id, Counter())[int(label)] += 1
+    majority_cluster = {cid: c.most_common(1)[0][0] for cid, c in votes.items()}
+
+    for line, label in zip(lines, labels, strict=True):
+        if line.character_id and majority_cluster.get(line.character_id) != int(label) and "unsure" not in line.flags:
+            line.flags = [*line.flags, "unsure"]
+            db.add(ReviewItem(project_id=project.id, line_id=line.id, kind="unsure"))
+
+    for cid, character in characters.items():
+        idxs = [i for i, line in enumerate(lines) if line.character_id == cid]
+        if idxs:
+            character.fingerprint = np.mean(feats[idxs], axis=0).tolist()
+
+    db.commit()
     on_progress(100, STAGE_LABELS["diarize"])
 
 
+async def _find_series_voice_reuse(project: Project, character: Character, db: Session) -> Voice | None:
+    """Series memory (spec §4.3): does this character sound like a voice already in
+    the series library? Cross-episode, so episode 2's cast reuses episode 1's clones
+    instead of cloning the same actor twice."""
+    if not project.series_id or not character.fingerprint:
+        return None
+    candidates = (
+        db.query(Voice)
+        .filter(Voice.series_id == project.series_id, Voice.fingerprint.isnot(None))
+        .all()
+    )
+    char_fp = np.array(character.fingerprint)
+    best: tuple[Voice, float] | None = None
+    for voice in candidates:
+        sim = voice_engine.fingerprint_similarity(char_fp, np.array(voice.fingerprint))
+        if sim > 0.985 and (best is None or sim > best[1]):
+            best = (voice, sim)
+    return best[0] if best else None
+
+
 async def stage_cast(project: Project, db: Session, on_progress: ProgressFn) -> None:
+    """Auto-cast (spec §3 stage 5): reuse a series voice when this character's
+    fingerprint matches one already cast; otherwise clone from its own lines when
+    voice cloning is available (ElevenLabs configured + a licensed/admin owner);
+    otherwise fall back to a stock voice — unlicensed users always get a working
+    dub, never a blocked job (spec §3)."""
     on_progress(0, STAGE_LABELS["cast"])
     characters = db.query(Character).filter(Character.project_id == project.id).all()
-    for character in characters:
-        if not character.stock_voice:
+    owner = db.get(User, project.owner_id)
+    can_clone = bool(settings.elevenlabs_api_key) and owner is not None and (owner.is_licensed or owner.is_admin)
+    voices_dir = os.path.join(_project_dir(project.id), "voices")
+
+    for i, character in enumerate(characters):
+        if character.voice_id:
+            continue
+
+        reused = await _find_series_voice_reuse(project, character, db)
+        if reused:
+            character.voice_id = reused.id
+            db.commit()
+            on_progress((i + 1) / max(len(characters), 1) * 100.0, STAGE_LABELS["cast"])
+            continue
+
+        cloned = False
+        if can_clone and project.vocals_path:
+            lines = db.query(Line).filter(Line.character_id == character.id).all()
+            spans = [(line.start_sec, line.end_sec) for line in lines]
+            ref_path = os.path.join(voices_dir, f"{character.id}_ref.wav")
+            built_path, total_sec = await voice_cast_store.build_reference_clip(project.vocals_path, spans, ref_path)
+            if built_path:
+                try:
+                    voice_id = await elevenlabs_service.clone_voice(
+                        settings.elevenlabs_api_key, character.name or f"Character {i + 1}", built_path,
+                    )
+                    voice = Voice(
+                        series_id=project.series_id,
+                        name=character.name or f"Character {i + 1}",
+                        reference_path=built_path,
+                        fingerprint=character.fingerprint,
+                        provider_ids={"elevenlabs": voice_id},
+                    )
+                    db.add(voice)
+                    db.flush()
+                    character.voice_id = voice.id
+                    cloned = True
+                except elevenlabs_service.ElevenLabsError as exc:
+                    db.add(ReviewItem(
+                        project_id=project.id, kind="low_clone_quality",
+                        payload={"character": character.name, "error": str(exc)},
+                    ))
+            else:
+                db.add(ReviewItem(
+                    project_id=project.id, kind="low_clone_quality",
+                    payload={"character": character.name, "reason": f"only {total_sec:.1f}s of usable audio"},
+                ))
+
+        if not cloned and not character.stock_voice:
             character.stock_voice = tts_stock.voice_for_gender(character.gender)
-    db.commit()
+
+        db.commit()
+        on_progress((i + 1) / max(len(characters), 1) * 100.0, STAGE_LABELS["cast"])
+
     on_progress(100, STAGE_LABELS["cast"])
+
+
+async def _fit_to_slot(tmp_path: str, out_path: str, slot_seconds: float) -> tuple[bool, float]:
+    """Shared slot-fit step (spec §3 stage 6: "fitted to the line's time slot, speed-
+    adjust, never overlap the next line") for whichever provider produced tmp_path."""
+    duration = ffmpeg_tools.probe_duration(tmp_path)
+    if slot_seconds <= 0 or abs(duration - slot_seconds) < 0.15:
+        if tmp_path != out_path:
+            import shutil as _shutil
+
+            _shutil.move(tmp_path, out_path)
+        return True, duration
+    factor = duration / slot_seconds
+    await ffmpeg_tools.atempo(tmp_path, out_path, factor)
+    return 0.5 <= factor <= 2.0, ffmpeg_tools.probe_duration(out_path)
 
 
 async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) -> None:
@@ -174,12 +319,14 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
     )
     for i, line in enumerate(lines):
         character = line.character
-        voice = (character.stock_voice if character else None) or tts_stock.voice_for_gender(
-            character.gender if character else None
-        )
         out_path = os.path.join(lines_dir, f"{line.id}.mp3")
         tmp_path = os.path.join(lines_dir, f"{line.id}.raw.mp3")
         slot = max(0.0, line.end_sec - line.start_sec)
+
+        elevenlabs_voice_id = None
+        voice_row = character.voice if character else None
+        if voice_row and voice_row.provider_ids:
+            elevenlabs_voice_id = voice_row.provider_ids.get("elevenlabs")
 
         energy_db = None
         vocals_source = project.vocals_path or project.audio_path
@@ -187,10 +334,21 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
             energy_db = await ffmpeg_tools.measure_segment_mean_volume(vocals_source, line.start_sec, line.end_sec)
 
         try:
-            fit_ok, _ = await tts_stock.synthesize_fit_to_slot(
-                line.khmer_text, voice, out_path, slot, tmp_path,
-                emotion=line.emotion, energy_db=energy_db,
-            )
+            if elevenlabs_voice_id:
+                # Cloned voice (M3): the character's own performance, in Khmer.
+                await elevenlabs_service.text_to_speech(
+                    settings.elevenlabs_api_key, elevenlabs_voice_id, line.khmer_text, tmp_path, emotion=line.emotion,
+                )
+                fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
+            else:
+                # Stock voice fallback (spec §3/§8): always available, no license needed.
+                stock_voice = (character.stock_voice if character else None) or tts_stock.voice_for_gender(
+                    character.gender if character else None
+                )
+                fit_ok, _ = await tts_stock.synthesize_fit_to_slot(
+                    line.khmer_text, stock_voice, out_path, slot, tmp_path,
+                    emotion=line.emotion, energy_db=energy_db,
+                )
             line.audio_path = out_path
             if not fit_ok and "slot_overflow" not in line.flags:
                 line.flags = [*line.flags, "slot_overflow"]

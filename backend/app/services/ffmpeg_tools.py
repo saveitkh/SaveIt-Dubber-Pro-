@@ -84,6 +84,13 @@ async def measure_segment_mean_volume(path: str, start: float, end: float) -> fl
     return float(match.group(1)) if match else None
 
 
+async def trim_clip(src_path: str, start: float, end: float, out_path: str) -> None:
+    await _run([
+        "ffmpeg", "-nostdin", "-y", "-ss", str(max(0.0, start)), "-to", str(max(0.0, end)),
+        "-i", src_path, "-ar", "44100", "-ac", "1", out_path,
+    ])
+
+
 async def concat_audio(clip_paths: list[str], out_path: str) -> None:
     """Concatenate audio clips (re-encoding via filter_complex, safe across mismatched
     source formats — unlike the concat demuxer's `-c copy`, which is picky about
