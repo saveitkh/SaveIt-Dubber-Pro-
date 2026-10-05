@@ -1,23 +1,13 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
+import { CharacterSheet } from "../components/characters/CharacterSheet";
 import { StatusChip } from "../components/StatusChip";
+import { Timeline } from "../components/timeline/Timeline";
 import { t } from "../i18n";
 import { api } from "../lib/api";
 import { subscribeToJob, type JobEvent } from "../lib/sse";
-
-interface ProjectDetail {
-  project: {
-    id: string;
-    name: string;
-    status: string;
-    outputVideoPath: string | null;
-  };
-  lines: Array<{ id: string; startSec: number; endSec: number; khmerText: string; flags: string[] }>;
-  characters: Array<{ id: string; name: string; color: string }>;
-  reviewItems: Array<{ id: string; kind: string }>;
-  jobs: Array<{ id: string; stage: string; status: string; progress: number; message: string | null }>;
-}
+import type { CharacterDetail, ProjectDetail } from "../lib/types";
 
 const STAGE_LABELS: Record<string, string> = {
   prepare: "រៀបចំ",
@@ -33,29 +23,42 @@ const STAGE_ORDER = Object.keys(STAGE_LABELS);
 
 export function ProjectScreen() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [live, setLive] = useState<JobEvent | null>(null);
+  const [openCharacter, setOpenCharacter] = useState<CharacterDetail | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
+  const load = () => {
     if (!projectId) return;
     api.get<ProjectDetail>(`/api/projects/${projectId}`).then(setDetail);
-  }, [projectId]);
+  };
+
+  useEffect(load, [projectId]);
 
   useEffect(() => {
     const jobId = detail?.jobs[0]?.id;
     if (!jobId || detail?.jobs[0]?.status === "done") return;
     return subscribeToJob(jobId, (event) => {
       setLive(event);
-      if (event.status === "done" && projectId) {
-        api.get<ProjectDetail>(`/api/projects/${projectId}`).then(setDetail);
-      }
+      if (event.status === "done") load();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.jobs, projectId]);
 
   if (!detail) return <div className="p-6 text-slate-400">{t.common.loading}</div>;
 
-  const { project, characters, reviewItems } = detail;
+  const { project, characters, reviewItems, lines } = detail;
   const stageIdx = live ? STAGE_ORDER.indexOf(live.stage) : -1;
+  const duration = Math.max(1, ...lines.map((l) => l.endSec), (videoRef.current?.duration || 0));
+
+  const seekTo = (seconds: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+    }
+    setCurrentTime(seconds);
+  };
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -93,10 +96,23 @@ export function ProjectScreen() {
         <div className="mb-6 rounded-xl bg-red-500/10 p-4 text-sm text-red-300">{live.error}</div>
       )}
 
+      {project.outputVideoUrl && (
+        <video
+          ref={videoRef}
+          src={project.outputVideoUrl}
+          controls
+          className="mb-4 w-full rounded-2xl bg-black"
+          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+        />
+      )}
+
       {reviewItems.length > 0 && (
-        <div className="mb-6 rounded-xl bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-300">
-          {t.project.needsReview}: {reviewItems.length}
-        </div>
+        <button
+          onClick={() => navigate(`/projects/${projectId}/review`)}
+          className="mb-6 w-full rounded-xl bg-amber-500/10 px-4 py-3 text-left text-sm font-medium text-amber-300"
+        >
+          {t.project.needsReview}: {reviewItems.length} →
+        </button>
       )}
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -107,28 +123,55 @@ export function ProjectScreen() {
           <p className="text-sm text-slate-500">—</p>
         ) : (
           characters.map((c) => (
-            <div
+            <button
               key={c.id}
+              onClick={() => setOpenCharacter(c)}
               className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium text-white"
               style={{ backgroundColor: c.color }}
             >
               {c.name || "?"}
-            </div>
+            </button>
           ))
         )}
       </div>
 
+      {lines.length > 0 && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            {t.project.timeline}
+          </h2>
+          <div className="mb-24 md:mb-6">
+            <Timeline
+              projectId={projectId!}
+              durationSec={duration}
+              lines={lines}
+              characters={characters}
+              currentTime={currentTime}
+              onSeek={seekTo}
+            />
+          </div>
+        </>
+      )}
+
       <div className="sticky bottom-20 flex gap-2 md:bottom-4">
-        <button className="flex-1 rounded-xl bg-brand-600 py-3 text-sm font-medium text-white">
-          {t.project.playDub}
-        </button>
-        <button className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200">
-          {t.project.regenerate}
-        </button>
-        <button className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200">
+        <a
+          href={project.outputVideoUrl ?? undefined}
+          download
+          className={`flex-1 rounded-xl py-3 text-center text-sm font-medium text-white ${
+            project.outputVideoUrl ? "bg-brand-600" : "pointer-events-none bg-slate-800 text-slate-500"
+          }`}
+        >
           {t.project.export}
-        </button>
+        </a>
       </div>
+
+      {openCharacter && (
+        <CharacterSheet
+          character={openCharacter}
+          onClose={() => setOpenCharacter(null)}
+          onSaved={() => load()}
+        />
+      )}
     </div>
   );
 }

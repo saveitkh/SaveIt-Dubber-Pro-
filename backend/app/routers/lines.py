@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user
 from app.jobs.pipeline import regenerate_line as _regenerate_line
-from app.models import Line, Project, User
+from app.models import Line, Project, ReviewItem, User
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
@@ -56,3 +56,12 @@ async def regenerate_line(line_id: str, user: User = Depends(get_current_user), 
         "flags": line.flags,
         "audioPath": line.audio_path,
     }
+
+
+@router.delete("/{line_id}")
+def delete_line(line_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    line = _owned_line(line_id, user, db)
+    db.query(ReviewItem).filter(ReviewItem.line_id == line.id).update({"resolved": True})
+    db.delete(line)
+    db.commit()
+    return {"deleted": True}

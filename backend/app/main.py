@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import OUTPUTS_DIR, UPLOADS_DIR, VOICES_DIR
 from app.db import init_db
-from app.routers import auth, characters, health, jobs, lines, projects, settings, voices
+from app.routers import auth, characters, health, jobs, lines, projects, review_items, settings, voices
 
 app = FastAPI(title="SaveIt Dubber Pro")
 
@@ -31,6 +31,7 @@ app.include_router(projects.router)
 app.include_router(jobs.router)
 app.include_router(lines.router)
 app.include_router(characters.router)
+app.include_router(review_items.router)
 app.include_router(voices.router)
 app.include_router(settings.router)
 

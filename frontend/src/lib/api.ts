@@ -50,6 +50,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  delete_: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
 export interface UserPublic {
@@ -68,9 +69,9 @@ export interface ProjectSummary {
   status: string;
   automationLevel: string;
   durationSec: number | null;
-  outputVideoPath: string | null;
-  outputAudioPath: string | null;
-  outputSrtPath: string | null;
+  outputVideoUrl: string | null;
+  outputAudioUrl: string | null;
+  outputSrtUrl: string | null;
   createdAt: string;
   latestJob?: { id: string; stage: string; status: string; progress: number } | null;
 }

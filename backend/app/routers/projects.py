@@ -10,6 +10,7 @@ from app.jobs.pipeline import STAGES
 from app.jobs.runner import run_job
 from app.models import Character, Job, Line, Project, ReviewItem, User
 from app.services import waveform as waveform_service
+from app.services.media_url import to_media_url
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -24,9 +25,10 @@ def _project_dict(project: Project) -> dict:
         "status": project.status,
         "automationLevel": project.automation_level,
         "durationSec": project.duration_sec,
-        "outputVideoPath": project.output_video_path,
-        "outputAudioPath": project.output_audio_path,
-        "outputSrtPath": project.output_srt_path,
+        "outputVideoUrl": to_media_url(project.output_video_path),
+        "outputAudioUrl": to_media_url(project.output_audio_path),
+        "outputSrtUrl": to_media_url(project.output_srt_path),
+        "originalAudioUrl": to_media_url(project.audio_path),
         "createdAt": project.created_at.isoformat(),
     }
 
@@ -100,7 +102,7 @@ def get_project(project_id: str, user: User = Depends(get_current_user), db: Ses
                 "khmerText": line.khmer_text,
                 "emotion": line.emotion,
                 "speed": line.speed,
-                "audioPath": line.audio_path,
+                "audioUrl": to_media_url(line.audio_path),
                 "flags": line.flags,
                 "dirty": line.dirty,
             }
@@ -113,7 +115,7 @@ def get_project(project_id: str, user: User = Depends(get_current_user), db: Ses
                 "gender": c.gender,
                 "voiceId": c.voice_id,
                 "color": c.color,
-                "faceThumbPath": c.face_thumb_path,
+                "faceThumbUrl": to_media_url(c.face_thumb_path),
                 "emotionDefault": c.emotion_default,
                 "speed": c.speed,
             }
