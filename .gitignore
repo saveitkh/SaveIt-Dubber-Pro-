@@ -1,5 +1,6 @@
 # Python
 backend/.venv/
+backend/voxcpm_engine/.venv/
 __pycache__/
 *.pyc
 

@@ -1,0 +1,11 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+soundfile==0.12.1
+numpy
+
+# The real model — large download, needs Python >=3.10,<3.13, torch>=2.5, CUDA>=12
+# (spec §8b). Installed separately so this engine's /health can still report a clear
+# "not installed" status on a CPU-only or offline dev machine instead of failing to
+# import at all.
+voxcpm

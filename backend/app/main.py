@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import OUTPUTS_DIR, UPLOADS_DIR
+from app.config import OUTPUTS_DIR, UPLOADS_DIR, VOICES_DIR
 from app.db import init_db
 from app.routers import auth, characters, health, jobs, lines, projects, settings, voices
 
@@ -36,6 +36,7 @@ app.include_router(settings.router)
 
 app.mount("/media/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/media/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
+app.mount("/media/voices", StaticFiles(directory=str(VOICES_DIR)), name="voices")
 
 # In production the Docker image bundles the built frontend; served last so it
 # never shadows the /api and /media routes above. In local dev this directory

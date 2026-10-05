@@ -29,6 +29,7 @@ from app.services import (
     vocal_separator,
     voice_cast_store,
     voice_engine,
+    voxcpm_client,
 )
 
 STAGES = ["prepare", "separate", "transcribe", "diarize", "cast", "speak", "mix", "export"]
@@ -226,16 +227,50 @@ async def _find_series_voice_reuse(project: Project, character: Character, db: S
     return best[0] if best else None
 
 
+async def _try_clone(
+    project: Project, character: Character, built_path: str, label: str
+) -> Voice | None:
+    """Provider fallback order for cloning itself (spec §8): VoxCPM2 first when an
+    engine URL is configured, then ElevenLabs. Either failure is non-fatal — the
+    caller falls back further to a stock voice."""
+    if settings.voxcpm_url:
+        try:
+            voice_id = await voxcpm_client.register_voice(settings.voxcpm_url, built_path)
+            voice = Voice(
+                series_id=project.series_id, name=label, reference_path=built_path,
+                fingerprint=character.fingerprint, provider_ids={"voxcpm": voice_id},
+            )
+            return voice
+        except voxcpm_client.VoxCPMError:
+            pass  # fall through to ElevenLabs
+
+    if settings.elevenlabs_api_key:
+        try:
+            voice_id = await elevenlabs_service.clone_voice(settings.elevenlabs_api_key, label, built_path)
+            return Voice(
+                series_id=project.series_id, name=label, reference_path=built_path,
+                fingerprint=character.fingerprint, provider_ids={"elevenlabs": voice_id},
+            )
+        except elevenlabs_service.ElevenLabsError:
+            pass
+
+    return None
+
+
 async def stage_cast(project: Project, db: Session, on_progress: ProgressFn) -> None:
     """Auto-cast (spec §3 stage 5): reuse a series voice when this character's
-    fingerprint matches one already cast; otherwise clone from its own lines when
-    voice cloning is available (ElevenLabs configured + a licensed/admin owner);
-    otherwise fall back to a stock voice — unlicensed users always get a working
-    dub, never a blocked job (spec §3)."""
+    fingerprint matches one already cast; otherwise clone from its own lines
+    (VoxCPM2 -> ElevenLabs, spec §8) when cloning is available and the project
+    owner is licensed/admin; otherwise fall back to a stock voice — unlicensed
+    users always get a working dub, never a blocked job (spec §3)."""
     on_progress(0, STAGE_LABELS["cast"])
     characters = db.query(Character).filter(Character.project_id == project.id).all()
     owner = db.get(User, project.owner_id)
-    can_clone = bool(settings.elevenlabs_api_key) and owner is not None and (owner.is_licensed or owner.is_admin)
+    can_clone = (
+        bool(settings.voxcpm_url or settings.elevenlabs_api_key)
+        and owner is not None
+        and (owner.is_licensed or owner.is_admin)
+    )
     voices_dir = os.path.join(_project_dir(project.id), "voices")
 
     for i, character in enumerate(characters):
@@ -256,25 +291,17 @@ async def stage_cast(project: Project, db: Session, on_progress: ProgressFn) -> 
             ref_path = os.path.join(voices_dir, f"{character.id}_ref.wav")
             built_path, total_sec = await voice_cast_store.build_reference_clip(project.vocals_path, spans, ref_path)
             if built_path:
-                try:
-                    voice_id = await elevenlabs_service.clone_voice(
-                        settings.elevenlabs_api_key, character.name or f"Character {i + 1}", built_path,
-                    )
-                    voice = Voice(
-                        series_id=project.series_id,
-                        name=character.name or f"Character {i + 1}",
-                        reference_path=built_path,
-                        fingerprint=character.fingerprint,
-                        provider_ids={"elevenlabs": voice_id},
-                    )
+                label = character.name or f"Character {i + 1}"
+                voice = await _try_clone(project, character, built_path, label)
+                if voice:
                     db.add(voice)
                     db.flush()
                     character.voice_id = voice.id
                     cloned = True
-                except elevenlabs_service.ElevenLabsError as exc:
+                else:
                     db.add(ReviewItem(
                         project_id=project.id, kind="low_clone_quality",
-                        payload={"character": character.name, "error": str(exc)},
+                        payload={"character": character.name, "reason": "cloning failed on every configured provider"},
                     ))
             else:
                 db.add(ReviewItem(
@@ -323,10 +350,9 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
         tmp_path = os.path.join(lines_dir, f"{line.id}.raw.mp3")
         slot = max(0.0, line.end_sec - line.start_sec)
 
-        elevenlabs_voice_id = None
-        voice_row = character.voice if character else None
-        if voice_row and voice_row.provider_ids:
-            elevenlabs_voice_id = voice_row.provider_ids.get("elevenlabs")
+        provider_ids = (character.voice.provider_ids if character and character.voice else None) or {}
+        voxcpm_voice_id = provider_ids.get("voxcpm")
+        elevenlabs_voice_id = provider_ids.get("elevenlabs")
 
         energy_db = None
         vocals_source = project.vocals_path or project.audio_path
@@ -334,8 +360,16 @@ async def stage_speak(project: Project, db: Session, on_progress: ProgressFn) ->
             energy_db = await ffmpeg_tools.measure_segment_mean_volume(vocals_source, line.start_sec, line.end_sec)
 
         try:
-            if elevenlabs_voice_id:
-                # Cloned voice (M3): the character's own performance, in Khmer.
+            if voxcpm_voice_id and settings.voxcpm_url:
+                # Cloned voice (M3, primary provider): the character's own performance,
+                # in Khmer, with emotion carried as a style prefix (spec §8b).
+                await voxcpm_client.speak(
+                    settings.voxcpm_url, line.khmer_text, tmp_path, voice_id=voxcpm_voice_id,
+                    style=voxcpm_client.EMOTION_STYLE.get(line.emotion),
+                )
+                fit_ok, _ = await _fit_to_slot(tmp_path, out_path, slot)
+            elif elevenlabs_voice_id:
+                # Cloned voice (M3, fallback provider).
                 await elevenlabs_service.text_to_speech(
                     settings.elevenlabs_api_key, elevenlabs_voice_id, line.khmer_text, tmp_path, emotion=line.emotion,
                 )

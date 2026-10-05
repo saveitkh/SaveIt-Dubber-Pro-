@@ -19,8 +19,16 @@ free/no key) fit to each line's time slot, and a smart background bed mix (full
 volume where nobody speaks, ducked under dialogue). Without `GEMINI_API_KEY`
 configured, a project still finishes end-to-end as a clean passthrough of the
 original audio with a review item explaining why — never a blocked job (spec §3/§8).
-Voice cloning (VoxCPM2/ElevenLabs) and the acoustic diarization/review-queue
-refinements land in M3/M4.
+**M3 Voices** — `voxcpm_engine/` (a standalone VoxCPM2 service per spec §8b: `/health`,
+`/v1/voices`, `/v1/speak`, `/v1/speak/stream`, `/v1/audio/speech`; reports a clear
+"model not installed" status rather than crashing when no GPU/model is present),
+the acoustic voice engine (ported `scripts/voice_split_offline.py` as library code:
+VAD, MFCC+pitch features, Ward clustering) cross-checking Gemini's speaker split and
+flagging disagreements for review, auto-cast with cloning (VoxCPM2 → ElevenLabs →
+stock, in that order) gated on a licensed/admin account, cross-episode series voice
+memory by acoustic fingerprint similarity, and a working Voice Clip screen/endpoint
+(drop any file with voices → separated, split by speaker, quality-scored clips ready
+to name and save). Timeline/review-queue UI and partial re-runs land in M4.
 
 ## Local development
 
