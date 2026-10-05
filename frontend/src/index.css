@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  font-family: "Kantumruy Pro", "Noto Sans Khmer", sans-serif;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}

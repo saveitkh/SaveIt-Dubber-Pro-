@@ -1,0 +1,25 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env
+.env
+
+# Data / runtime volumes
+data/*.db
+uploads/*
+outputs/*
+voices/*
+!uploads/.gitkeep
+!outputs/.gitkeep
+!voices/.gitkeep
+!data/.gitkeep
+
+# Misc
+.DS_Store
+*.log

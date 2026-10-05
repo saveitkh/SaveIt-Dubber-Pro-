@@ -1,0 +1,43 @@
+services:
+  studio:
+    build: .
+    container_name: dubbing-studio
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite:////app/data/studio.db
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./voices:/app/voices
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dubbing-studio-caddy
+    profiles: ["caddy"]
+    depends_on:
+      - studio
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+# To join an existing VPS proxy network instead of Caddy above, replace the
+# `networks:` block with (per spec §11):
+#
+# networks:
+#   default:
+#     name: vps_default
+#     external: true
