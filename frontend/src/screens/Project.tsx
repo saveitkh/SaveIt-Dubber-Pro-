@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { CharacterSheet } from "../components/characters/CharacterSheet";
 import { StatusChip } from "../components/StatusChip";
 import { Timeline } from "../components/timeline/Timeline";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { api } from "../lib/api";
 import { subscribeToJob, type JobEvent } from "../lib/sse";
 import type { CharacterDetail, ProjectDetail } from "../lib/types";
@@ -22,6 +22,7 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_ORDER = Object.keys(STAGE_LABELS);
 
 export function ProjectScreen() {
+  const t = useT();
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);

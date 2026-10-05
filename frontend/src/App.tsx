@@ -6,6 +6,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { initTelegram } from "./lib/telegram";
 import { Home } from "./screens/Home";
 import { ProjectScreen } from "./screens/Project";
+import { Projects } from "./screens/Projects";
 import { ReviewQueue } from "./screens/ReviewQueue";
 import { Settings } from "./screens/Settings";
 import { Voices } from "./screens/Voices";
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/projects/:projectId" element={<ProjectScreen />} />
           <Route path="/projects/:projectId/review" element={<ReviewQueue />} />
+          <Route path="/projects" element={<Projects />} />
           <Route path="/voices" element={<Voices />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />

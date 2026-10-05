@@ -3,10 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { StatusChip } from "../components/StatusChip";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { api, type ProjectSummary } from "../lib/api";
 
 export function Home() {
+  const t = useT();
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);

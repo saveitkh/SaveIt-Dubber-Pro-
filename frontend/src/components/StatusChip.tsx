@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { useT } from "../i18n";
 
 const STYLES: Record<string, string> = {
   new: "bg-slate-700 text-slate-200",
@@ -8,15 +8,15 @@ const STYLES: Record<string, string> = {
   error: "bg-red-500/20 text-red-300",
 };
 
-const LABELS: Record<string, string> = {
-  new: t.status.new,
-  processing: t.status.processing,
-  needs_review: t.status.needsReview,
-  done: t.status.done,
-  error: t.status.error,
-};
-
 export function StatusChip({ status, progress }: { status: string; progress?: number | null }) {
+  const t = useT();
+  const LABELS: Record<string, string> = {
+    new: t.status.new,
+    processing: t.status.processing,
+    needs_review: t.status.needsReview,
+    done: t.status.done,
+    error: t.status.error,
+  };
   const label = LABELS[status] ?? status;
   const style = STYLES[status] ?? STYLES.new;
   return (

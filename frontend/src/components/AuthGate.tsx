@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
 
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { isInsideTelegram } from "../lib/telegram";
 import { useAuthStore } from "../store/auth";
 
 export function AuthGate({ children }: { children: ReactNode }) {
+  const t = useT();
   const { status, error, checkSession, loginWithPassword, register } = useAuthStore();
   const insideTelegram = isInsideTelegram();
   const [mode, setMode] = useState<"login" | "register">("login");

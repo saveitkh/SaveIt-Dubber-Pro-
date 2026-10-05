@@ -29,6 +29,12 @@ def _voice_dict(voice: Voice) -> dict:
     }
 
 
+@router.get("/api/voices")
+def list_voices(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    voices = db.query(Voice).all()
+    return {"voices": [_voice_dict(v) for v in voices]}
+
+
 @router.post("/api/voices/clip")
 async def voice_clip_upload(
     file: UploadFile = File(...),

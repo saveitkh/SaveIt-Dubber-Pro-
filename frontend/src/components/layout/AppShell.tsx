@@ -2,16 +2,16 @@ import { Home as HomeIcon, Mic2, Settings as SettingsIcon, FolderClosed } from "
 import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-import { t } from "../../i18n";
-
-const TABS = [
-  { to: "/", label: t.nav.home, icon: HomeIcon },
-  { to: "/projects", label: t.nav.projects, icon: FolderClosed },
-  { to: "/voices", label: t.nav.voices, icon: Mic2 },
-  { to: "/settings", label: t.nav.settings, icon: SettingsIcon },
-];
+import { useT } from "../../i18n";
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const t = useT();
+  const TABS = [
+    { to: "/", label: t.nav.home, icon: HomeIcon },
+    { to: "/projects", label: t.nav.projects, icon: FolderClosed },
+    { to: "/voices", label: t.nav.voices, icon: Mic2 },
+    { to: "/settings", label: t.nav.settings, icon: SettingsIcon },
+  ];
   return (
     <div className="flex min-h-screen flex-col bg-slate-950 md:flex-row">
       <aside className="hidden w-56 flex-col border-r border-slate-800 p-4 md:flex">

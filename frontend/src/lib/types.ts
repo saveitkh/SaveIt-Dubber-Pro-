@@ -62,3 +62,36 @@ export interface WaveformPeaks {
   min: number[];
   max: number[];
 }
+
+export interface VoiceGroup {
+  groupId: number;
+  gender: string;
+  totalSeconds: number;
+  clipCount: number;
+  quality: string;
+  previewPath: string | null;
+}
+
+export interface VoiceItem {
+  id: string;
+  seriesId: string | null;
+  name: string;
+  referencePath: string | null;
+  fingerprint: Record<string, unknown> | null;
+  providerIds: Record<string, string> | null;
+}
+
+export interface ProviderStatus {
+  gemini: { configured: boolean };
+  elevenlabs: { configured: boolean };
+  voxcpm: { configured: boolean; url: string };
+}
+
+export interface HealthStatus {
+  status: string;
+  ffmpeg: boolean;
+  demucs: boolean;
+  gpu: boolean;
+  providers: { gemini: boolean; elevenlabs: boolean; voxcpm: boolean };
+  telegram: boolean;
+}
