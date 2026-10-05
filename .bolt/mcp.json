@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "enabled": true
+    },
+    "raiilway": {
+      "enabled": true
+    }
+  }
+}
